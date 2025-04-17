@@ -1,4 +1,4 @@
-name: Notify if Milestone Passed (In Development Issues)
+name: Notify on Milestone Status (In Development Issues)
 
 on:
   schedule:
@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  notify-on-milestone-achieved:
+  notify-milestone-status:
     runs-on: ubuntu-latest
     permissions:
       issues: write
     steps:
-      - name: Check for passed milestones on In Development issues
+      - name: Check milestone status and notify
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -28,11 +28,25 @@ jobs:
             });
 
             for (const issue of data.items) {
-              if (!issue.milestone || !issue.milestone.due_on) continue;
+              const milestone = issue.milestone;
+              if (!milestone) continue;
 
-              const dueDate = new Date(issue.milestone.due_on);
-              if (dueDate > today) continue; // skip if milestone due date is still in future
+              const dueDate = milestone.due_on ? new Date(milestone.due_on) : null;
+              const isOverdue = dueDate && dueDate < today;
+              const isClosed = milestone.state === "closed";
 
+              let milestoneStatus = null;
+              if (isClosed && isOverdue) {
+                milestoneStatus = "closed and overdue";
+              } else if (isClosed) {
+                milestoneStatus = "closed";
+              } else if (isOverdue) {
+                milestoneStatus = "overdue";
+              } else {
+                continue; // Skip milestone that is open and not overdue
+              }
+
+              // Check for org member assignees
               let orgAssignees = [];
               for (const assignee of issue.assignees) {
                 const login = assignee.login;
@@ -51,7 +65,7 @@ jobs:
                 ? orgAssignees.join(", ")
                 : "@WilliamLindskog";
 
-              const body = `📌 Milestone for this \`In Development\` issue has passed its due date. ${pingTarget} — please review whether this issue can now be closed as \`Completed\`.`;
+              const body = `📌 Milestone for this \`In Development\` issue is *${milestoneStatus}*. ${pingTarget} — please review whether this issue can now be closed as \`Completed\`.`;
 
               await github.rest.issues.createComment({
                 owner,
@@ -60,5 +74,5 @@ jobs:
                 body
               });
 
-              console.log(`✅ Pinged ${pingTarget} on issue #${issue.number}`);
+              console.log(`🔔 Pinged ${pingTarget} on issue #${issue.number} (milestone: ${milestoneStatus})`);
             }
