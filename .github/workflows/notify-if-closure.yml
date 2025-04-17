@@ -1,0 +1,39 @@
+name: Notify WilliamLindskog on External Issue Closure
+
+on:
+  issues:
+    types: [closed]
+
+jobs:
+  notify-william-if-external:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Notify if external user closed the issue
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const closer = context.actor;
+
+            // Skip bots
+            if (closer.endsWith("[bot]")) return;
+
+            const org = context.repo.owner;
+
+            // Check if the user is a member of the org
+            const { status } = await github.rest.orgs.checkMembershipForUser({
+              org,
+              username: closer
+            }).catch(() => ({ status: 404 }));
+
+            if (status !== 204) {
+              // Not a member of the org — notify WilliamLindskog
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: issue.number,
+                body: `@WilliamLindskog, confirm. This issue was closed by @${closer} (external).`
+              });
+            }
