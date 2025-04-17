@@ -1,0 +1,64 @@
+name: Notify if Milestone Passed (In Development Issues)
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # Daily at 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  notify-on-milestone-achieved:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Check for passed milestones on In Development issues
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const org = owner;
+            const today = new Date();
+
+            const query = `repo:${owner}/${repo} is:issue is:open comments:>=1 has:milestone -milestone:"Future Release"`;
+            const { data } = await github.rest.search.issuesAndPullRequests({
+              q: query,
+              per_page: 100
+            });
+
+            for (const issue of data.items) {
+              if (!issue.milestone || !issue.milestone.due_on) continue;
+
+              const dueDate = new Date(issue.milestone.due_on);
+              if (dueDate > today) continue; // skip if milestone due date is still in future
+
+              let orgAssignees = [];
+              for (const assignee of issue.assignees) {
+                const login = assignee.login;
+
+                const { status } = await github.rest.orgs.checkMembershipForUser({
+                  org,
+                  username: login
+                }).catch(() => ({ status: 404 }));
+
+                if (status === 204) {
+                  orgAssignees.push(`@${login}`);
+                }
+              }
+
+              const pingTarget = orgAssignees.length > 0
+                ? orgAssignees.join(", ")
+                : "@WilliamLindskog";
+
+              const body = `📌 Milestone for this \`In Development\` issue has passed its due date. ${pingTarget} — please review whether this issue can now be closed as \`Completed\`.`;
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body
+              });
+
+              console.log(`✅ Pinged ${pingTarget} on issue #${issue.number}`);
+            }
