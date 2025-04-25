@@ -3,6 +3,7 @@ description: Submit a new feature, documentation improvement, or baseline idea
 title: "[Feature Request]: "
 labels: []
 assignees: []
+type: Feature  # <<<< THIS is the magic
 
 body:
   - type: dropdown
