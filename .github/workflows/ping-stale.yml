@@ -17,9 +17,11 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const fetch = require("node-fetch"); // ❌ This will cause the error
+
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const issueNumber = 1; // Replace with an existing issue in your repo
+            const issueNumber = 1;
 
             const issue = await github.rest.issues.get({
               owner,
