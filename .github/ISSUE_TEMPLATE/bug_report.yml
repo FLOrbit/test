@@ -1,6 +1,5 @@
 name: Report a Bug
 description: Create a report to help us reproduce and correct the bug
-title: "[Bug]: "
 labels: []
 assignees: []
 type: Bug  # 👈 This sets the Type in GitHub sidebar!
