@@ -1,0 +1,42 @@
+name: Test Stale Issue Ping
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ping-test:
+    runs-on: ubuntu-22.04
+    permissions:
+      issues: read
+    env:
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+    steps:
+      - name: Send test ping to Slack
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = 1; // Replace with an existing issue in your repo
+
+            const issue = await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number: issueNumber
+            });
+
+            const slackText = `🧪 *[TEST]* Slack ping for issue <${issue.data.html_url}|#${issue.data.number} - ${issue.data.title}>`;
+
+            await fetch("https://slack.com/api/chat.postMessage", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                channel: process.env.SLACK_CHANNEL_ID,
+                text: slackText
+              })
+            });
