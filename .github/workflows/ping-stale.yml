@@ -21,13 +21,14 @@ jobs:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const org = owner;
             const now = new Date();
-            const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
             const todayStr = now.toISOString().slice(0, 10);
+            const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
-            const query = `repo:${owner}/${repo} is:issue is:open comments:>=1 no:milestone`;
+            const query = `repo:${owner}/${repo} is:issue is:open label:"Under Discussion"`;
             const { data } = await github.rest.search.issuesAndPullRequests({ q: query, per_page: 100 });
+
+            const staleIssues = [];
 
             for (const issue of data.items) {
               if (issue.pull_request) continue;
@@ -62,35 +63,41 @@ jobs:
                 continue;
               }
 
-              // Determine assignee(s)
-              let orgAssignees = [];
-              for (const assignee of issue.assignees) {
-                const login = assignee.login;
-                const { status } = await github.rest.orgs.checkMembershipForUser({
-                  org,
-                  username: login,
-                }).catch(() => ({ status: 404 }));
-
-                if (status === 204) {
-                  orgAssignees.push(`@${login}`);
-                }
-              }
-
-              const pingTarget = orgAssignees.length > 0 ? orgAssignees.join(", ") : "@WilliamLindskog";
-
-              const slackText = `*Stale Under Discussion Issue*\n${pingTarget} — <${issue.html_url}|#${issue.number} - ${issue.title}> has had no comments for 5+ minutes.\nPlease review or update its status.\n\n<!-- bot:stale-ping:${todayStr} -->`;
-
-              console.log(`Pinging #${issue.number} to Slack...`);
-
-              await fetch("https://slack.com/api/chat.postMessage", {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  channel: process.env.SLACK_CHANNEL_ID,
-                  text: slackText,
-                }),
-              });
+              staleIssues.push(issue);
             }
+
+            if (staleIssues.length === 0) {
+              console.log("No stale issues to report.");
+              return;
+            }
+
+            // Format Markdown table
+            let table = [
+              "| Issue | Title | Assignees |",
+              "|-------|-------|-----------|"
+            ];
+
+            for (const issue of staleIssues) {
+              const number = `#${issue.number}`;
+              const title = issue.title.length > 40 ? issue.title.slice(0, 37) + "..." : issue.title;
+              const assignees = issue.assignees.length > 0
+                ? issue.assignees.map(a => `@${a.login}`).join(", ")
+                : "@WilliamLindskog";
+              table.push(`| ${number} | ${title} | ${assignees} |`);
+            }
+
+            const slackText = `*Stale Under Discussion Issues (no comments in 5+ minutes)*\n\n\`\`\`\n${table.join("\n")}\n\`\`\`\n\nPlease review or update their status.\n<!-- bot:stale-ping:${todayStr} -->`;
+
+            console.log("Sending Slack message...");
+
+            await fetch("https://slack.com/api/chat.postMessage", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                channel: process.env.SLACK_CHANNEL_ID,
+                text: slackText,
+              }),
+            });
