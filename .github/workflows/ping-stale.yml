@@ -22,7 +22,6 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const now = new Date();
-            const todayStr = now.toISOString().slice(0, 10);
             const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
             const query = `repo:${owner}/${repo} is:issue is:open comments:>=1 no:milestone"`;
@@ -48,14 +47,6 @@ jobs:
 
               if (lastComment) {
                 lastActivityAt = new Date(lastComment.updated_at);
-
-                const isFromBot = lastComment.user?.login === "github-actions[bot]";
-                const markerMatch = (lastComment.body || "").match(/<!-- bot:stale-ping:(\d{4}-\d{2}-\d{2}) -->/);
-
-                if (isFromBot && markerMatch && markerMatch[1] === todayStr) {
-                  console.log(`Skipping #${issue.number}: already pinged today`);
-                  continue;
-                }
               }
 
               if (lastActivityAt >= fiveMinutesAgo) {
@@ -86,7 +77,7 @@ jobs:
               table.push(`| ${number} | ${title} | ${assignees} |`);
             }
 
-            const slackText = `*Stale Under Discussion Issues (no comments in 5+ minutes)*\n\n\`\`\`\n${table.join("\n")}\n\`\`\`\n\nPlease review or update their status.\n<!-- bot:stale-ping:${todayStr} -->`;
+            const slackText = `*Stale Under Discussion Issues (no comments in 5+ minutes)*\n\n\`\`\`\n${table.join("\n")}\n\`\`\`\n\nPlease review or update their status.`;
 
             console.log("Sending Slack message...");
 
