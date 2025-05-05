@@ -26,7 +26,7 @@ jobs:
             const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
             const todayStr = now.toISOString().slice(0, 10);
 
-            const query = `repo:${owner}/${repo} is:issue is:open label:"Under Discussion"`;
+            const query = `repo:${owner}/${repo} is:issue is:open comments:>=1 no:milestone`;
             const { data } = await github.rest.search.issuesAndPullRequests({ q: query, per_page: 100 });
 
             for (const issue of data.items) {
