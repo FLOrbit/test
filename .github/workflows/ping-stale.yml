@@ -21,56 +21,76 @@ jobs:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+            const org = owner;
             const now = new Date();
             const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+            const todayStr = now.toISOString().slice(0, 10);
 
-            // Fetch all open issues with label 'Under Discussion'
-            const query = `repo:${owner}/${repo} is:issue is:issue is:open comments:>=1 no:milestone`;
+            const query = `repo:${owner}/${repo} is:issue is:open label:"Under Discussion"`;
             const { data } = await github.rest.search.issuesAndPullRequests({ q: query, per_page: 100 });
 
             for (const issue of data.items) {
-              if (issue.pull_request) continue; // skip PRs
+              if (issue.pull_request) continue;
 
-              // Fetch last comment
+              // Get latest comment
               const comments = await github.rest.issues.listComments({
-                owner, repo,
+                owner,
+                repo,
                 issue_number: issue.number,
                 per_page: 1,
                 sort: "updated",
-                direction: "desc"
+                direction: "desc",
               });
 
               let lastActivityAt = new Date(issue.updated_at);
-              if (comments.data.length > 0) {
-                lastActivityAt = new Date(comments.data[0].updated_at);
+              const lastComment = comments.data[0];
 
-                // Skip if already pinged recently
-                if ((comments.data[0].body || "").includes("<!-- bot:stale-ping -->")) {
-                  if (lastActivityAt >= fiveMinutesAgo) {
-                    console.log(`Skipping issue #${issue.number}: recently pinged.`);
-                    continue;
-                  }
+              if (lastComment) {
+                lastActivityAt = new Date(lastComment.updated_at);
+
+                const isFromBot = lastComment.user?.login === "github-actions[bot]";
+                const markerMatch = (lastComment.body || "").match(/<!-- bot:stale-ping:(\d{4}-\d{2}-\d{2}) -->/);
+
+                if (isFromBot && markerMatch && markerMatch[1] === todayStr) {
+                  console.log(`Skipping #${issue.number}: already pinged today`);
+                  continue;
                 }
               }
 
               if (lastActivityAt >= fiveMinutesAgo) {
-                console.log(`Skipping issue #${issue.number}: recent activity at ${lastActivityAt.toISOString()}`);
+                console.log(`Skipping #${issue.number}: recent activity at ${lastActivityAt.toISOString()}`);
                 continue;
               }
 
-              const slackText = `*Stale Under Discussion Issue*\n<${issue.html_url}|#${issue.number} - ${issue.title}> has had no comments for 5+ minutes.\nPlease review or update its status.\n\n<!-- bot:stale-ping -->`;
+              // Determine assignee(s)
+              let orgAssignees = [];
+              for (const assignee of issue.assignees) {
+                const login = assignee.login;
+                const { status } = await github.rest.orgs.checkMembershipForUser({
+                  org,
+                  username: login,
+                }).catch(() => ({ status: 404 }));
+
+                if (status === 204) {
+                  orgAssignees.push(`@${login}`);
+                }
+              }
+
+              const pingTarget = orgAssignees.length > 0 ? orgAssignees.join(", ") : "@WilliamLindskog";
+
+              const slackText = `*Stale Under Discussion Issue*\n${pingTarget} — <${issue.html_url}|#${issue.number} - ${issue.title}> has had no comments for 5+ minutes.\nPlease review or update its status.\n\n<!-- bot:stale-ping:${todayStr} -->`;
+
+              console.log(`Pinging #${issue.number} to Slack...`);
 
               await fetch("https://slack.com/api/chat.postMessage", {
                 method: "POST",
                 headers: {
                   Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-                  "Content-Type": "application/json"
+                  "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
                   channel: process.env.SLACK_CHANNEL_ID,
-                  text: slackText
-                })
+                  text: slackText,
+                }),
               });
-
-              console.log(`Pinged issue #${issue.number}`);
             }
