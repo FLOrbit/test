@@ -19,19 +19,17 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const org = owner;
             const now = new Date();
-            const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
-            const query = `repo:${owner}/${repo} is:issue is:open comments:>=1 no:milestone`;
+            // Fetch all open issues with label 'Under Discussion'
+            const query = `repo:${owner}/${repo} is:issue is:open label:"Under Discussion"`;
             const { data } = await github.rest.search.issuesAndPullRequests({ q: query, per_page: 100 });
 
             for (const issue of data.items) {
-              const updatedAt = new Date(issue.updated_at);
-              if (updatedAt >= sevenDaysAgo) continue;
+              if (issue.pull_request) continue; // skip PRs
 
               // Fetch last comment
               const comments = await github.rest.issues.listComments({
@@ -42,35 +40,25 @@ jobs:
                 direction: "desc"
               });
 
+              let lastActivityAt = new Date(issue.updated_at);
               if (comments.data.length > 0) {
-                const lastComment = comments.data[0];
-                if ((lastComment.body || "").includes("<!-- bot:stale-ping -->")) {
-                  const lastPing = new Date(lastComment.updated_at);
-                  if (lastPing >= sevenDaysAgo) {
+                lastActivityAt = new Date(comments.data[0].updated_at);
+
+                // Skip if already pinged recently
+                if ((comments.data[0].body || "").includes("<!-- bot:stale-ping -->")) {
+                  if (lastActivityAt >= fiveMinutesAgo) {
                     console.log(`Skipping issue #${issue.number}: recently pinged.`);
                     continue;
                   }
                 }
               }
 
-              // Filter org assignees
-              let orgAssignees = [];
-              for (const assignee of issue.assignees) {
-                const login = assignee.login;
-                const { status } = await github.rest.orgs.checkMembershipForUser({
-                  org, username: login
-                }).catch(() => ({ status: 404 }));
-
-                if (status === 204) {
-                  orgAssignees.push(`@${login}`);
-                }
+              if (lastActivityAt >= fiveMinutesAgo) {
+                console.log(`Skipping issue #${issue.number}: recent activity at ${lastActivityAt.toISOString()}`);
+                continue;
               }
 
-              const pingTarget = orgAssignees.length > 0
-                ? orgAssignees.join(", ")
-                : "@WilliamLindskog";
-
-              const slackText = `*Stale Under Discussion Issue*\n${pingTarget} — <${issue.html_url}|#${issue.number} - ${issue.title}> has had no activity for 7+ days.\nPlease review or update its status.\n\n<!-- bot:stale-ping -->`;
+              const slackText = `*Stale Under Discussion Issue*\n<${issue.html_url}|#${issue.number} - ${issue.title}> has had no comments for 5+ minutes.\nPlease review or update its status.\n\n<!-- bot:stale-ping -->`;
 
               await fetch("https://slack.com/api/chat.postMessage", {
                 method: "POST",
@@ -83,4 +71,6 @@ jobs:
                   text: slackText
                 })
               });
-            } 
+
+              console.log(`Pinged issue #${issue.number}`);
+            }
