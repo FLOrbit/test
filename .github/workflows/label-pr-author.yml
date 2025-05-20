@@ -27,7 +27,7 @@ jobs:
               return;
             }
 
-            const org = "adap";
+            const org = "FLOrbit";
             const author = pr.user.login;
             const { status } = await github.rest.orgs.checkMembershipForUser({
               org,
