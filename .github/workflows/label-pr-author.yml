@@ -1,9 +1,9 @@
-name: Label PR Authors (Hourly)
+name: Label PR Authors (Scheduled)
 
 on:
   schedule:
     - cron: '0 * * * *'  # every hour
-  workflow_dispatch:     # allow manual trigger too
+  workflow_dispatch:     # allow manual run too
 
 permissions:
   pull-requests: write
@@ -17,6 +17,8 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const org = "FLOrbit";
+
             const prs = await github.rest.pulls.list({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -24,18 +26,29 @@ jobs:
               per_page: 100,
             });
 
-            const INTERNAL_USERNAMES = ["williamlm", "danielnata", "javier", /* etc */];
-
             for (const pr of prs.data) {
               const labels = pr.labels.map(l => l.name);
               const hasLabel = labels.includes("Maintainer") || labels.includes("Contributor");
-
               if (hasLabel) continue;
 
               const author = pr.user.login;
-              const isInternal = INTERNAL_USERNAMES.includes(author);
 
-              const label = isInternal ? "Maintainer" : "Contributor";
+              let isMaintainer = false;
+              try {
+                const result = await github.rest.orgs.checkMembershipForUser({
+                  org,
+                  username: author
+                });
+                isMaintainer = result.status === 204;
+              } catch (e) {
+                if (e.status === 404) {
+                  isMaintainer = false;
+                } else {
+                  throw e;
+                }
+              }
+
+              const label = isMaintainer ? "Maintainer" : "Contributor";
               console.log(`Labeling PR #${pr.number} by ${author} as ${label}`);
 
               await github.rest.issues.addLabels({
