@@ -1,0 +1,94 @@
+name: Ping Stale Under Discussion Issues
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-stale-issues:
+    runs-on: ubuntu-22.04
+    permissions:
+      issues: read
+    env:
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      SLACK_CHANNEL_ID: C08Q1QC5XEJ
+    steps:
+      - name: Ping stale Under Discussion issues via Slack
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const now = new Date();
+            const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+            const query = `repo:${owner}/${repo} is:issue is:open comments:>=1 no:milestone"`;
+            const { data } = await github.rest.search.issuesAndPullRequests({ q: query, per_page: 100 });
+
+            const staleIssues = [];
+
+            for (const issue of data.items) {
+              if (issue.pull_request) continue;
+
+              // Get latest comment
+              const comments = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number: issue.number,
+                per_page: 1,
+                sort: "updated",
+                direction: "desc",
+              });
+
+              let lastActivityAt = new Date(issue.updated_at);
+              const lastComment = comments.data[0];
+
+              if (lastComment) {
+                lastActivityAt = new Date(lastComment.updated_at);
+              }
+
+              if (lastActivityAt >= fiveMinutesAgo) {
+                console.log(`Skipping #${issue.number}: recent activity at ${lastActivityAt.toISOString()}`);
+                continue;
+              }
+
+              staleIssues.push(issue);
+            }
+
+            if (staleIssues.length === 0) {
+              console.log("No stale issues to report.");
+              return;
+            }
+
+            // Format Markdown table
+            let table = [
+              "| Issue | Title | Assignees |",
+              "|-------|-------|-----------|"
+            ];
+
+            for (const issue of staleIssues) {
+              const number = `#${issue.number}`;
+              const title = issue.title.length > 40 ? issue.title.slice(0, 37) + "..." : issue.title;
+              const assignees = issue.assignees.length > 0
+                ? issue.assignees.map(a => `@${a.login}`).join(", ")
+                : "@WilliamLindskog";
+              table.push(`| ${number} | ${title} | ${assignees} |`);
+            }
+
+            const slackText = `*Stale Under Discussion Issues (no comments in 5+ minutes)*\n\n\`\`\`\n${table.join("\n")}\n\`\`\`\n\nPlease review or update their status.`;
+
+            console.log("Sending Slack message...");
+
+            await fetch("https://slack.com/api/chat.postMessage", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                channel: process.env.SLACK_CHANNEL_ID,
+                text: slackText,
+              }),
+            });
